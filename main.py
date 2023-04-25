@@ -530,23 +530,19 @@ def main():
                          ),
              'D': Params(LC=(2, 2),
                          sd=(1, 1),
-                         ds=(1, 5),
-                         cb=(3, 1),
-                         ),
-             'E': Params(LC=(2, 2),
-                         sd=(1, 3),
-                         ds=(1, 3),
-                         cb=(3, 1),
-                         ),
-             'F': Params(LC=(2, 2),
-                         sd=(1, 5),
                          ds=(1, 1),
-                         cb=(3, 1),
+                         cb=(11, 1)
                          ),
-             'G': Params(LC=(2, 2),
+             'E': Params(LC=(1, 4),
                          sd=(1, 1),
                          ds=(1, 1),
-                         cb=(11, 1))
+                         cb=(6, 1),
+                         ),
+             'F': Params(LC=(1, 4),
+                         sd=(1, 1),
+                         ds=(1, 3),
+                         cb=(4, 1),
+                         ),
              }
 
     for name in sizes.keys():
