@@ -1,7 +1,3 @@
-/resultsA
-/resultsB
-/resultsC
-/resultsD
-/resultsE
-/resultsF
-/resultsG
+results*
+.idea
+__pycache__
