@@ -2,6 +2,7 @@ import copy
 import os
 
 import numpy as np
+import scipy.linalg
 from numpy.linalg import inv
 from functions import *
 import scipy.special as spsp
@@ -22,19 +23,19 @@ def simulation(result, sizes, name):
     # Switchable variables
     D2D_NORM_s = {
         False: 'Only normalizes in abs (with 𐡀 and sum)',
-        True:  'Also normalizes phase (with d2_td)',
+        True: 'Also normalizes phase (with d2_td)',
     }
     d2dNorm = True
 
     SHOW_ARRAY_s = {
         False: "Doesn't show sensor arrays' plot",
-        True:  "Show sensor arrays' plot"
+        True: "Show sensor arrays' plot"
     }
     showArray = False
 
     RESULT_s = {
         'beam': 'Heatmap - Beampattern (abs)',
-        'bpt':  'Lineplot - Beampattern (abs and angle)',
+        'bpt': 'Lineplot - Beampattern (abs and angle)',
         'wng': 'Lineplot - White noise gain (real)',
         'df': 'Lineplot - Directivity factor (real)',
         'snr': 'Lineplot - Signal-to-noise ratio (real)',
@@ -57,8 +58,6 @@ def simulation(result, sizes, name):
     sizes.CS = add_arrays(sizes.ss, sizes.cb)
     sizes.PA = add_arrays(sizes.LC, sizes.CS)
 
-    print(sizes.PA)
-
     Arr_PA = Array(sizes.PA, "PA")
     Arr_LC = Array(sizes.LC, "LC")
     Arr_CS = Array(sizes.CS, "CS")
@@ -66,6 +65,8 @@ def simulation(result, sizes, name):
     Arr_ds = Array(sizes.ds, "ds")
     Arr_ss = Array(sizes.ss, "ss")
     Arr_cb = Array(sizes.cb, "cb")
+
+    print(Arr_PA.Mx, Arr_PA.My)
 
     Arrs = [
         Arr_PA,
@@ -79,9 +80,9 @@ def simulation(result, sizes, name):
     # ---------------
     # Constants
 
-    dx = 0.005
+    dx = 0.015
     # dy = 1.5 * (ss_x - 1) * dx
-    dy = 0.030
+    dy = 0.03
     c = 343
     aleph = 1
     wB_deg = 20
@@ -100,7 +101,7 @@ def simulation(result, sizes, name):
     # Interfering source
     Ni = Arr_LC.M - 1
 
-    all_tis_deg = [60, -90, 130]
+    all_tis_deg = [60, -90, 130, td_deg-wB_deg, td_deg+wB_deg]
     tis_deg = []
 
     for f_idx in range(Ni):
@@ -130,11 +131,11 @@ def simulation(result, sizes, name):
                   + [ang for ang in list(d_tB[1] + prec_around_angle)]
 
     sym_angles = [td_deg]
-    step = 4
+    step = 3
     while sym_angles[-1] - sym_angles[0] != 360:
         l = len(sym_angles)
-        in0 = sym_angles[0]-step
-        in1 = sym_angles[-1]+step
+        in0 = sym_angles[0] - step
+        in1 = sym_angles[-1] + step
         sym_angles.insert(l, in1)
         sym_angles.insert(0, in0)
 
@@ -150,13 +151,15 @@ def simulation(result, sizes, name):
 
     sym_angles = np.sort(sym_angles)
 
-    params = Params(dx=dx, dy=dy, sym_freqs=sym_freqs, sym_angles=sym_angles, td_rad=td_rad, c=c)
+    params = Params(dx=dx, dy=dy,
+                    sym_freqs=sym_freqs, sym_angles=sym_angles,
+                    td_rad=td_rad, c=c, wB_rad=wB_rad, aleph=aleph)
+
     '''
         Position matrices
     '''
     for Arr in Arrs:
-        Arr.calc_vals(params)
-
+        Arr.calc_vals(params, Arr_PA)
     '''
         Show sensor arrays
     '''
@@ -177,7 +180,7 @@ def simulation(result, sizes, name):
 
     vals = {}
     for f_idx, f in enumerate(sym_freqs):
-        print(f)
+        params.add(f=f)
         '''
             LCMV beamformer
         '''
@@ -207,7 +210,7 @@ def simulation(result, sizes, name):
         q1 = np.zeros([Ni + 1, 1])
         q1[0] = aleph
 
-        Arr_LC.h = iCorr_V @ C1 @ inv( he(C1) @ iCorr_V @ C1 ) @ q1
+        Arr_LC.h = iCorr_V @ C1 @ inv(he(C1) @ iCorr_V @ C1) @ q1
 
         '''
             SD beamformer
@@ -217,10 +220,8 @@ def simulation(result, sizes, name):
         Arr_sd.calc_sv(td_rad, f, c, True)
 
         # Beamforming
-        G_sd, _ = calcGzp(Arr_sd, f, c, {})
+        G_sd, _ = calcGzp(Arr_sd, f, c, {}, epsilon=1e-7)
 
-        # print(G_sd)
-        # input()
         iG_sd = sp.linalg.inv(G_sd)
         Arr_sd.h = (iG_sd @ Arr_sd.d_td) / (he(Arr_sd.d_td) @ iG_sd @ Arr_sd.d_td)
 
@@ -235,7 +236,7 @@ def simulation(result, sizes, name):
         Arr_ds.h = Arr_ds.d_td / ds_size
 
         '''
-            CS beamformer
+            CB beamformer
         '''
         cb_size = Arr_cb.M
 
@@ -249,6 +250,7 @@ def simulation(result, sizes, name):
 
         w_ = w * (1 / aleph) * 1 / np.sum(w) / np.conj(Arr_cb.d_td)
         Arr_cb.h = w_
+
         '''
             Beamformer reconstruction
         '''
@@ -316,8 +318,8 @@ def simulation(result, sizes, name):
 
             axs = [ax1, ax2, ax3]
             beams = [Arr_LC.beam, Arr_CS.beam, Arr_PA.beam]
-            xticks = [a0 + i*45 for i in range(int(1+(a1-a0)//45))]
-            yticks = [f0, (f0+f1)/2, f1]
+            xticks = [a0 + i * 45 for i in range(int(1 + (a1 - a0) // 45))]
+            yticks = [f0, (f0 + f1) / 2, f1]
 
             for idx in range(len(axs)):
                 ax = axs[idx]
@@ -325,7 +327,7 @@ def simulation(result, sizes, name):
                 dB_beam = dB(beam)
                 c = ax.pcolormesh(XY_f, XY_a, dB_beam, cmap='viridis', vmin=-50)
                 ax.set_xticks(ticks=xticks)
-                ax.set_yticks(ticks=yticks, labels=['{:.1f}k'.format(ytick/1000) for ytick in yticks])
+                ax.set_yticks(ticks=yticks, labels=['{:.1f}k'.format(ytick / 1000) for ytick in yticks])
                 divider = make_axes_locatable(ax)
                 cax = divider.append_axes('right', size='5%', pad=0.05)
                 fig.colorbar(c, cax=cax, orientation='vertical')
@@ -342,7 +344,7 @@ def simulation(result, sizes, name):
             for arr_idx, Arr in enumerate(Arrs):
                 wng_dB = dB(Arr.wng)
                 label = Arr.name
-                ax.plot(sym_freqs, wng_dB, label=label, linewidth=10-arr_idx, linestyle=(0, (3, arr_idx)))
+                ax.plot(sym_freqs, wng_dB, label=label, linewidth=10 - arr_idx, linestyle=(0, (3, arr_idx)))
             plt.xlim(f0, f1)
             # plt.ylim([0, 20])
             plt.legend()
@@ -354,7 +356,7 @@ def simulation(result, sizes, name):
                 df_plot = dB(Arr.df)
                 # df_plot = Arr.df
                 label = Arr.name
-                ax.plot(sym_freqs, df_plot, label=label, linewidth=10-arr_idx, linestyle=(0, (3, arr_idx)))
+                ax.plot(sym_freqs, df_plot, label=label, linewidth=10 - arr_idx, linestyle=(0, (3, arr_idx)))
             plt.xlim(f0, f1)
             # plt.ylim([0, 20])
             plt.legend()
@@ -366,7 +368,7 @@ def simulation(result, sizes, name):
                 snr_plot = dB(Arr.snr)
                 # df_plot = Arr.df
                 label = Arr.name
-                ax.plot(sym_freqs, snr_plot, label=label, linewidth=10-arr_idx, linestyle=(0, (3, arr_idx)))
+                ax.plot(sym_freqs, snr_plot, label=label, linewidth=10 - arr_idx, linestyle=(0, (3, arr_idx)))
             plt.xlim(f0, f1)
             # plt.ylim([0, 20])
             plt.legend()
@@ -378,7 +380,7 @@ def simulation(result, sizes, name):
                 fnbw_plot = Arr.fnbw
                 # df_plot = Arr.df
                 label = Arr.name
-                ax.plot(sym_freqs, fnbw_plot, label=label, linewidth=10-arr_idx, linestyle=(0, (3, arr_idx)))
+                ax.plot(sym_freqs, fnbw_plot, label=label, linewidth=10 - arr_idx, linestyle=(0, (3, arr_idx)))
             plt.xlim(f0, f1)
             plt.ylim([0, 50])
             plt.legend()
@@ -387,9 +389,9 @@ def simulation(result, sizes, name):
             # plt.show()
 
         case 'polar':
-            fig, axs = plt.subplots(2, 3, subplot_kw={'projection': 'polar'})
+            fig, axs = plt.subplots(2, 4, subplot_kw={'projection': 'polar'})
             fs = [0, -1]
-            beams = [Arr_LC.beam, Arr_CS.beam, Arr_PA.beam]
+            beams = [Arr_LC.beam, Arr_CS.beam, Arr_PA.beam, Arr_LC.beam * Arr_CS.beam]
             for f_i in range(len(fs)):
                 for b_i in range(len(beams)):
                     f_i_ = fs[f_i]
@@ -432,14 +434,13 @@ def simulation(result, sizes, name):
 
         case 'gendata':
             for Arr in Arrs:
-                print(Arr.name)
-                freqs = sym_freqs.reshape(-1,) / 1000
-                angles = sym_angles.reshape(-1,)
-                wng = dB(Arr.wng.reshape(-1,))
-                df = dB(Arr.df.reshape(-1,))
-                snr = dB(Arr.snr.reshape(-1,))
-                beam = dB(vect(Arr.beam).reshape(-1,))
-                fnbw = Arr.fnbw.reshape(-1,)
+                freqs = sym_freqs.reshape(-1, ) / 1000
+                angles = sym_angles.reshape(-1, )
+                wng = dB(Arr.wng.reshape(-1, ))
+                df = dB(Arr.df.reshape(-1, ))
+                snr = dB(Arr.snr.reshape(-1, ))
+                beam = dB(vect(Arr.beam).reshape(-1, ))
+                fnbw = Arr.fnbw.reshape(-1, )
                 params = [freqs, angles, wng, df, beam, snr, fnbw]
                 params = fixDec(params)
                 params = list(params)
@@ -458,29 +459,29 @@ def simulation(result, sizes, name):
                     b_angles += [angle] * len(freqs)
                 beam_ = list(zip(b_freqs, b_angles, beam))
 
-                wng_ = 'freq,val\n'+'\n'.join([','.join([str(val) for val in item]) for item in wng_])
-                df_ = 'freq,val\n'+'\n'.join([','.join([str(val) for val in item]) for item in df_])
-                beam_ = 'freq,ang,val\n'+'\n'.join([','.join([str(val) for val in item]) for item in beam_])
-                snr_ = 'freq,val\n'+'\n'.join([','.join([str(val) for val in item]) for item in snr_])
-                fnbw_ = 'freq,val\n'+'\n'.join([','.join([str(val) for val in item]) for item in fnbw_])
+                wng_ = 'freq,val\n' + '\n'.join([','.join([str(val) for val in item]) for item in wng_])
+                df_ = 'freq,val\n' + '\n'.join([','.join([str(val) for val in item]) for item in df_])
+                beam_ = 'freq,ang,val\n' + '\n'.join([','.join([str(val) for val in item]) for item in beam_])
+                snr_ = 'freq,val\n' + '\n'.join([','.join([str(val) for val in item]) for item in snr_])
+                fnbw_ = 'freq,val\n' + '\n'.join([','.join([str(val) for val in item]) for item in fnbw_])
 
                 filename = 'res' + name + '_' + Arr.name + '_'
                 folder = 'results' + name + '/'
                 if not os.path.isdir(folder):
                     os.mkdir(folder)
-                with open(folder+filename+'wng.csv', 'w') as f:
+                with open(folder + filename + 'wng.csv', 'w') as f:
                     f.write(wng_)
                     f.close()
-                with open(folder+filename+'df.csv', 'w') as f:
+                with open(folder + filename + 'df.csv', 'w') as f:
                     f.write(df_)
                     f.close()
-                with open(folder+filename+'snr.csv', 'w') as f:
+                with open(folder + filename + 'snr.csv', 'w') as f:
                     f.write(snr_)
                     f.close()
-                with open(folder+filename+'fnbw.csv', 'w') as f:
+                with open(folder + filename + 'fnbw.csv', 'w') as f:
                     f.write(fnbw_)
                     f.close()
-                with open(folder+filename+'beam.csv', 'w') as f:
+                with open(folder + filename + 'beam.csv', 'w') as f:
                     f.write(beam_)
                     f.close()
 
@@ -492,15 +493,10 @@ def simulation(result, sizes, name):
             beam_max = r'\def\ymax{{{}}}'.format(beam_max)
             meshcols = r'\def\meshcols{{{}}}'.format(sym_freqs.shape[0])
             meshrows = r'\def\meshrows{{{}}}'.format(len(sym_angles))
-            col_r = r'\definecolor{LightR}{HTML}{C81414}'
-            col_g = r'\definecolor{LightG}{HTML}{14C814}'
-            col_b = r'\definecolor{LightB}{HTML}{1414C8}'
-            col_c = r'\definecolor{LightC}{HTML}{14C8C8}'
-            col_m = r'\definecolor{LightM}{HTML}{C814C8}'
-            col_y = r'\definecolor{LightY}{HTML}{C8C814}'
-            col_k = r'\definecolor{LightK}{HTML}{666666}'
+            colors = gen_palette(80, 60, 6, 345)
+            lightK = r'\definecolor{LightG}{HTML}{3F3F3F}'
 
-            data_defs = [beam_min, beam_max, meshcols, meshrows, col_r, col_g, col_b, col_c, col_m, col_y, col_k]
+            data_defs = [beam_min, beam_max, meshcols, meshrows] + colors + [lightK]
             data_defs = '\n'.join(data_defs)
 
             with open('data_defs.tex', 'w') as f:
@@ -512,45 +508,43 @@ def simulation(result, sizes, name):
 
 
 def main():
-    result = 'gendata'
-    sizes = {'A': Params(LC=(2, 2),
-                         sd=(1, 1),
-                         ds=(1, 3),
-                         cb=(5, 1),
-                         ),
-             'B': Params(LC=(2, 2),
-                         sd=(1, 2),
-                         ds=(1, 2),
-                         cb=(5, 1),
-                         ),
-             'C': Params(LC=(2, 2),
-                         sd=(1, 3),
-                         ds=(1, 1),
-                         cb=(5, 1),
-                         ),
-             'D': Params(LC=(2, 2),
-                         sd=(1, 1),
-                         ds=(1, 5),
-                         cb=(3, 1),
-                         ),
-             'E': Params(LC=(2, 2),
-                         sd=(1, 3),
-                         ds=(1, 3),
-                         cb=(3, 1),
-                         ),
-             'F': Params(LC=(2, 2),
-                         sd=(1, 5),
-                         ds=(1, 1),
-                         cb=(3, 1),
-                         ),
-             'G': Params(LC=(2, 2),
-                         sd=(1, 1),
-                         ds=(1, 1),
-                         cb=(11, 1))
-             }
+    result = 'beam'
+    sizes = {
+        'A': Params(LC=(2, 2, 0),
+                    sd=(1, 2, 0),
+                    ds=(1, 2, 0),
+                    cb=(8, 1, 0),
+                    ),
+        'B': Params(LC=(2, 2, 0),
+                    sd=(1, 1, 0),
+                    ds=(1, 1, 0),
+                    cb=(17, 1, 0),
+                    ),
+        'C': Params(LC=(4, 1, 0),
+                    sd=(2, 1, 0),
+                    ds=(2, 1, 0),
+                    cb=(31, 1, 0),
+                    ),
+        'D': Params(LC=(4, 1, 0),
+                    sd=(1, 1, 0),
+                    ds=(1, 1, 0),
+                    cb=(33, 1, 0),
+                    ),
+        'E': Params(LC=(1, 4, 1),
+                    sd=(1, 2, 0),
+                    ds=(1, 2, 0),
+                    cb=(3, 1, 0),
+                    ),
+        'F': Params(LC=(1, 4, 1),
+                    sd=(1, 1, 0),
+                    ds=(1, 1, 0),
+                    cb=(9, 1, 0),
+                    ),
+    }
 
     for name in sizes.keys():
         size = sizes[name]
+        print(name)
         simulation(result, size, name)
 
 
