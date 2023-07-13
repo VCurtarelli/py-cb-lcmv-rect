@@ -12,26 +12,25 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import tikzplotlib as tpl
 import scipy as sp
 
-'''
-    Sixth branch.
-    Using different Gzp.
-'''
 
+def simulation(result: str, sizes: Params, name: str):
+    """
+    Parameters
+    ----------
+    result: str
+        Which result to produce, from the available.
+    sizes: Params
+        Struct of names and sizes of the desired sub-array beamformers.
+    name: str
+        Name of current simulation.
 
-def simulation(result, sizes, name):
+    Returns
+    -------
+
+    """
+
     # ---------------
-    # Switchable variables
-    D2D_NORM_s = {
-        False: 'Only normalizes in abs (with 𐡀 and sum)',
-        True: 'Also normalizes phase (with d2_td)',
-    }
-    d2dNorm = True
-
-    SHOW_ARRAY_s = {
-        False: "Doesn't show sensor arrays' plot",
-        True: "Show sensor arrays' plot"
-    }
-    showArray = False
+    # Possible values for parameter 'result'
 
     RESULT_s = {
         'beam': 'Heatmap - Beampattern (abs)',
@@ -43,17 +42,10 @@ def simulation(result, sizes, name):
         'polar2': 'Polar plot - Beampattern for a given frequency',
         'gendata': "Multiplot - Generates 'beam' and 'polar' for the final beamformer"
     }
-    # result = 'df'
 
     # ---------------
     # Sensor array
 
-    # sizes = Params(
-    #     LC=(2, 2),
-    #     sd=(1, 3),
-    #     ds=(1, 1),
-    #     cb=(5, 1)
-    # )
     sizes.ss = add_arrays(sizes.sd, sizes.ds)
     sizes.CS = add_arrays(sizes.ss, sizes.cb)
     sizes.PA = add_arrays(sizes.LC, sizes.CS)
@@ -66,8 +58,6 @@ def simulation(result, sizes, name):
     Arr_ss = Array(sizes.ss, "ss")
     Arr_cb = Array(sizes.cb, "cb")
 
-    print(Arr_PA.Mx, Arr_PA.My)
-
     Arrs = [
         Arr_PA,
         Arr_LC,
@@ -77,31 +67,29 @@ def simulation(result, sizes, name):
         Arr_ss,
         Arr_cb
     ]
+
     # ---------------
     # Constants
 
-    dx = 0.015
-    # dy = 1.5 * (ss_x - 1) * dx
-    dy = 0.03
-    c = 343
-    aleph = 1
-    wB_deg = 20
+    dx = 0.015   # x-axis spacing
+    dy = 0.03    # y-axis spacing
+    c = 343      # wave speed (speed of sound)
+    tB_deg = 40  # FNBW aperture
 
-    '''
-        Signal info
-    '''
+    ## ---------------
+    ## Signal Info
 
     # ---------------
     # Desired source
-    td_deg = 0
+    td_deg = 0  # desired source direction
     td_rad = np.deg2rad(td_deg)
-    Var_X = 5
+    Var_X = 5   # variance of X
 
     # ---------------
     # Interfering source
-    Ni = Arr_LC.M - 1
+    Ni = Arr_LC.M - 1  # total number of interfering sources
 
-    all_tis_deg = [60, -90, 130, td_deg-wB_deg, td_deg+wB_deg]
+    all_tis_deg = [60, -90, 130]  # (un)desired LCMV angles (must be Ni <= len(all_tis_deg))
     tis_deg = []
 
     for f_idx in range(Ni):
@@ -111,20 +99,20 @@ def simulation(result, sizes, name):
     tis_rad = np.deg2rad(tis_deg)
     Var_Vis = np.ones_like(tis_deg)
 
-    Var_Vd = 1  # Variance of $\tilde{\bvv}$
-    Var_Va = 1
+    Var_Vd = 1  # Variance of uncorrelated noise
+    Var_Va = 1  # Variance of fully correlated noise
 
-    '''
-        Sym info
-    '''
-    wB_rad = np.deg2rad(wB_deg)
-    d_tB = ang_f2s(td_deg, (-wB_deg, +wB_deg))
+    ## ---------------
+    ## Simulation Info
+
+    tB_rad = np.deg2rad(tB_deg)
+    d_tB = ang_f2s(td_deg, (-tB_deg/2, +tB_deg/2))
     f0 = 4 * 1e3
     f1 = 8 * 1e3
     fpoints = 20
     sym_freqs = np.logspace(np.log10(f0), np.log10(f1), fpoints)
 
-    prec_around_angle = np.linspace(-5, 5, 21)
+    prec_around_angle = np.linspace(-5, 5, 21)  # precision around important angles
 
     calc_angles = [td_deg] + list(tis_deg) + list(-tis_deg) \
                   + [ang for ang in list(d_tB[0] + prec_around_angle)] \
@@ -153,41 +141,28 @@ def simulation(result, sizes, name):
 
     params = Params(dx=dx, dy=dy,
                     sym_freqs=sym_freqs, sym_angles=sym_angles,
-                    td_rad=td_rad, c=c, wB_rad=wB_rad, aleph=aleph)
+                    td_rad=td_rad, c=c, wB_rad=tB_rad, aleph=1)
 
-    '''
-        Position matrices
-    '''
+    ## ---------------
+    ## Sub-array matrices
     for Arr in Arrs:
-        Arr.calc_vals(params, Arr_PA)
-    '''
-        Show sensor arrays
-    '''
-    if showArray:
-        show_array(Arr_PA.Pos, 140, 'F')
-        show_array(Arr_LC.Pos, 100, 'L')
-        show_array(Arr_CS.Pos, 60, 'C')
-        plt.xticks(np.arange(Arr_PA.My) * dy)
-        plt.yticks(np.arange(Arr_PA.Mx) * dx)
-        plt.legend()
-        plt.show()
+        Arr.calc_vals(params, Arr_PA)  # Calculates position for all sensors of sub-array
+        Arr.init_metrics(sym_freqs.size, sym_angles.size, Ni)  # Initializes metrics
 
-    '''
-        Initialize measure matrices
-    '''
-    for Arr in Arrs:
-        Arr.init_metrics(sym_freqs.size, sym_angles.size, Ni)
-
-    vals = {}
+    ## ---------------
+    ## Simulation loop - For each frequency
     for f_idx, f in enumerate(sym_freqs):
         params.add(f=f)
-        '''
-            LCMV beamformer
-        '''
+
+        ## ---------------
+        ## LCMV beamformer
+
+        # ---------------
         # Desired source
         Arr_LC.calc_sv(td_rad, f, c, True)
         Corr_X = Var_X * Arr_LC.d_td @ he(Arr_LC.d_td)
 
+        # ---------------
         # Interfering source
         C1 = []
         Corr_V = np.zeros_like(Corr_X)
@@ -204,56 +179,61 @@ def simulation(result, sizes, name):
         iCorr_V = inv(Corr_V)
         iCorr_Vd = inv(Corr_Vd)
 
+        # ---------------
         # Beamforming
         C1.insert(0, Arr_LC.d_td)
         C1 = np.concatenate(C1, axis=1)
         q1 = np.zeros([Ni + 1, 1])
-        q1[0] = aleph
+        q1[0] = 1
 
         Arr_LC.h = iCorr_V @ C1 @ inv(he(C1) @ iCorr_V @ C1) @ q1
 
-        '''
-            SD beamformer
-        '''
+        ## ---------------
+        ## SD beamformer
+
+        # ---------------
         # Desired source
         sd_size = Arr_sd.M
         Arr_sd.calc_sv(td_rad, f, c, True)
 
+        # ---------------
         # Beamforming
-        G_sd, _ = calcGzp(Arr_sd, f, c, {}, epsilon=1e-7)
+        G_sd, _ = calcGzp(Arr_sd, f, c, epsilon=1e-7)
 
-        iG_sd = sp.linalg.inv(G_sd)
+        iG_sd = np.linalg.inv(G_sd)
         Arr_sd.h = (iG_sd @ Arr_sd.d_td) / (he(Arr_sd.d_td) @ iG_sd @ Arr_sd.d_td)
 
-        '''
-            DS beamformer
-        '''
+        ## ---------------
+        ## DS beamformer
+
+        # ---------------
         # Desired source
         ds_size = Arr_ds.M
         Arr_ds.calc_sv(td_rad, f, c, True)
 
+        # ---------------
         # Beamforming
         Arr_ds.h = Arr_ds.d_td / ds_size
 
-        '''
-            CB beamformer
-        '''
+        ## ---------------
+        ## CB beamformer
+
         cb_size = Arr_cb.M
 
         Arr_cb.calc_sv(td_rad, f, c, True)
         p0, p1, p2, p3, p4, p5 = (26, 12, 0.76608, 13.26, 0.4, 0.09834)
-        Asl = p0 * cb_size * dy * f / c * np.sin(wB_rad) - p1
+        Asl = p0 * cb_size * dy * f / c * np.sin(tB_rad/2) - p1
         beta = p2 * np.power(Asl - p3, p4, dtype=complex) + p5 * (Asl - p3)
         w = np.zeros([cb_size, 1], dtype=complex)
         for m in range(w.shape[0]):
             w[m] = spsp.iv(0, beta * np.sqrt(1 - (2 * m / (cb_size - 1) - 1) ** 2)) / spsp.iv(0, beta)
 
-        w_ = w * (1 / aleph) * 1 / np.sum(w) / np.conj(Arr_cb.d_td)
+        w_ = w * 1 / np.sum(w) / np.conj(Arr_cb.d_td)
         Arr_cb.h = w_
 
-        '''
-            Beamformer reconstruction
-        '''
+        ## ---------------
+        ## Full-array synthesis
+
         for Arr in Arrs:
             Arr.calc_sv(td_rad, f, c, True)
 
@@ -283,7 +263,7 @@ def simulation(result, sizes, name):
 
             if result in ('gendata', 'df'):
                 # DF
-                df, vals = calcdf(Arr, f, c, vals)
+                df = calcdf(Arr, f, c)
                 Arr.df[f_idx] = df
 
             if result in ('gendata', 'snr'):
@@ -405,8 +385,8 @@ def simulation(result, sizes, name):
                     for i in range(Ni):
                         ti_rad = tis_rad[i]
                         ax.axvline(x=ti_rad, c='k', linestyle='--')
-                    ax.axvline(x=td_rad - wB_rad, c='k', linestyle=':')
-                    ax.axvline(x=td_rad + wB_rad, c='k', linestyle=':')
+                    ax.axvline(x=td_rad - tB_rad/2, c='k', linestyle=':')
+                    ax.axvline(x=td_rad + tB_rad/2, c='k', linestyle=':')
                     axs[f_i, b_i] = ax
             plt.show()
 
@@ -427,8 +407,8 @@ def simulation(result, sizes, name):
                     for i in range(Ni):
                         ti_rad = tis_rad[i]
                         ax.axvline(x=ti_rad, c='k', linestyle='--')
-                    ax.axvline(x=td_rad - wB_rad, c='k', linestyle=':')
-                    ax.axvline(x=td_rad + wB_rad, c='k', linestyle=':')
+                    ax.axvline(x=td_rad - tB_rad/2, c='k', linestyle=':')
+                    ax.axvline(x=td_rad + tB_rad/2, c='k', linestyle=':')
                     axs[f_i, b_i] = ax
             plt.show()
 

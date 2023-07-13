@@ -178,7 +178,7 @@ def calcbpt(h, d):
     return A
 
 
-def calcGzp(Arr, f, c, vals, epsilon=0):
+def calcGzp(Arr, f, c, epsilon=0):
     # Calculates Gamma matrix from 0 to pi (zp)
     M = Arr.M
     Gzp = np.zeros([M, M], dtype=complex)
@@ -191,12 +191,12 @@ def calcGzp(Arr, f, c, vals, epsilon=0):
 
     Gzp = Gzp + np.identity(M)*epsilon
 
-    return Gzp, vals
+    return Gzp
 
 
-def calcdf(Arr, f, c, vals):
+def calcdf(Arr, f, c):
     # Calculates directivity factor
-    Gzp, vals = calcGzp(Arr, f, c, vals)
+    Gzp = calcGzp(Arr, f, c)
     h = Arr.h
     d_td = Arr.d_td
 
@@ -204,7 +204,7 @@ def calcdf(Arr, f, c, vals):
     df = df.item()
     df = np.real(df)
 
-    return df, vals
+    return df
 
 
 def show_array(pos, sz, label):
